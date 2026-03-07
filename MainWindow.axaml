@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:FemboyChanger"
+        xmlns:core="clr-namespace:FemboyChanger.Core"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="600"
+        Width="1000" Height="600"
+        x:Class="FemboyChanger.MainWindow"
+        Title="FemboyChanger - External Skin Changer"
+        Background="#1E1E1E">
+    
+    <Grid RowDefinitions="Auto,*">
+        <!-- Top Bar -->
+        <Border Grid.Row="0" Background="#252526" Padding="10">
+            <StackPanel Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
+                <TextBlock Text="FemboyChanger" Foreground="#FF69B4" FontSize="20" FontWeight="Bold" />
+                <ToggleButton x:Name="LanguageToggle" Content="Language: EN" IsCheckedChanged="OnLanguageToggled" />
+                <Button Content="Update Offsets/Skins" Click="OnUpdateDataClick" />
+                <TextBlock x:Name="StatusText" Text="Status: Loading..." VerticalAlignment="Center" Foreground="#AAAAAA" />
+            </StackPanel>
+        </Border>
+        
+        <!-- Main Content -->
+        <Grid x:Name="MainGrid" Grid.Row="1" ColumnDefinitions="250,*,300" IsEnabled="False">
+            <!-- Weapons List -->
+            <Border Grid.Column="0" BorderBrush="#333" BorderThickness="0,0,1,0">
+                <ListBox x:Name="WeaponList" Background="Transparent" SelectionChanged="OnWeaponSelected">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="local:WeaponGroup">
+                            <TextBlock Text="{Binding Key}" FontSize="16" Padding="10,5" Foreground="White"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+            
+            <!-- Skins Grid -->
+            <ScrollViewer Grid.Column="1">
+                <ListBox x:Name="SkinsList" Background="Transparent" SelectionChanged="OnSkinSelected">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="core:SkinData">
+                            <Border Width="150" Height="200" Margin="10" Background="#2C2C2C" CornerRadius="8" BorderBrush="#FF69B4" BorderThickness="1">
+                                <StackPanel>
+                                    <Image Source="{Binding ImageTask^}" Width="130" Height="130" Margin="10"/>
+                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" TextAlignment="Center" Foreground="White" FontSize="12" Margin="5"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </ScrollViewer>
+            
+            <!-- Skin Settings Panel -->
+            <Border Grid.Column="2" Background="#252526" Padding="20" BorderBrush="#333" BorderThickness="1,0,0,0">
+                <StackPanel Spacing="15">
+                    <TextBlock Text="Settings" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+                    
+                    <TextBlock Text="Wear / Float (0.0 - 1.0)" Foreground="White"/>
+                    <Slider x:Name="WearSlider" Minimum="0" Maximum="1" Value="0.001" TickFrequency="0.01" />
+                    
+                    <TextBlock Text="Seed" Foreground="White"/>
+                    <NumericUpDown x:Name="SeedBox" Minimum="0" Maximum="1000" Value="0" FormatString="0"/>
+                    
+                    <TextBlock Text="StatTrak" Foreground="White"/>
+                    <NumericUpDown x:Name="StatTrakBox" Minimum="-1" Maximum="999999" Value="-1" FormatString="0"/>
+                    <TextBlock Text="(-1 = Disabled)" Foreground="Gray" FontSize="11"/>
+                    
+                    <Button Content="Apply Skin" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Background="#FF69B4" Foreground="White" FontWeight="Bold" Height="40"
+                            Click="OnApplySkinClick" Margin="0,20,0,0"/>
+
+                    <Button Content="Force Update All" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Background="#D13B3B" Foreground="White" FontWeight="Bold" Height="40"
+                            Click="OnForceUpdateClick" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
