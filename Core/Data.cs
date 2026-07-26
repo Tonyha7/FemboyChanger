@@ -16,6 +16,13 @@ namespace FemboyChanger.Core
         public string WeaponName { get; set; } = ""; // Localized
         public int PaintIndex { get; set; }
         public string ImageUrl { get; set; } = "";
+
+        /// <summary>
+        /// True when the paint kit was authored for the pre-2018 mesh. client.dll reads the same
+        /// flag as <c>use_legacy_model</c> on the paint kit definition; without switching the
+        /// weapon to its legacy mesh group the texture is mapped onto the wrong UVs.
+        /// </summary>
+        public bool LegacyModel { get; set; }
         
         public Task<Avalonia.Media.Imaging.Bitmap?> ImageTask => ImageHelper.LoadImageAsync(ImageUrl);
     }
@@ -71,7 +78,8 @@ namespace FemboyChanger.Core
                             WeaponId = int.Parse(item["weapon"]["weapon_id"].ToString()),
                             WeaponName = item["weapon"]["name"]?.ToString(),
                             PaintIndex = int.Parse(paintIndexToken.ToString()),
-                            ImageUrl = item["image"]?.ToString()
+                            ImageUrl = item["image"]?.ToString(),
+                            LegacyModel = (bool?)item["legacy_model"] ?? false
                         });
                     } catch { } // skip parsing errors for individual skins
                 }

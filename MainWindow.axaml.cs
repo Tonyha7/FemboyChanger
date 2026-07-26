@@ -99,7 +99,8 @@ namespace FemboyChanger
                 PaintKit = _selectedSkin.PaintIndex,
                 Wear = (float)WearSlider.Value,
                 Seed = (int)(SeedBox.Value ?? 0),
-                StatTrak = (int)(StatTrakBox.Value ?? -1)
+                StatTrak = (int)(StatTrakBox.Value ?? -1),
+                LegacyModel = _selectedSkin.LegacyModel
             };
 
             // If it's a glove (WeaponId between 5027 and 5035 usually)
@@ -114,7 +115,7 @@ namespace FemboyChanger
             }
 
             SkinChangerLogic.ForceUpdate = true;
-            SkinChangerLogic.Log($"UI: Applied {_selectedSkin.Name} (Paint: {skinInfo.PaintKit}) for WeaponId: {_selectedSkin.WeaponId}");
+            SkinChangerLogic.Log($"UI: Applied {_selectedSkin.Name} (Paint: {skinInfo.PaintKit}, Legacy: {skinInfo.LegacyModel}) for WeaponId: {_selectedSkin.WeaponId}");
             StatusText.Text = $"Status: Applied {_selectedSkin.Name}";
         }
 
