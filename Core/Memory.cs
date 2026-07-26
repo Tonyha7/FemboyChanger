@@ -158,6 +158,31 @@ namespace FemboyChanger.Core
             CloseHandle(hThread);
         }
 
+        /// <summary>
+        /// Runs a shellcode stub inside the game process and waits for it. Used to make calls that
+        /// need more than the single argument CreateRemoteThread can pass, or that have to chain
+        /// virtual calls whose targets are only known inside the process.
+        /// </summary>
+        public bool CallStub(byte[] code)
+        {
+            if (_processHandle == IntPtr.Zero || code.Length == 0) return false;
+
+            IntPtr stub = Allocate(code.Length);
+            if (stub == IntPtr.Zero)
+            {
+                SkinChangerLogic.Log($"[Memory] VirtualAllocEx for a call stub failed, win32 error {Marshal.GetLastWin32Error()}");
+                return false;
+            }
+
+            try
+            {
+                if (!WriteBytes(stub, code)) return false;
+                CallThread(stub);
+                return true;
+            }
+            finally { Free(stub); }
+        }
+
         /// <summary>Writes into a code page, temporarily making it writable.</summary>
         public bool WriteProtected(nint address, byte[] data)
         {

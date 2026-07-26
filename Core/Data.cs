@@ -8,11 +8,25 @@ using Newtonsoft.Json.Linq;
 
 namespace FemboyChanger.Core
 {
+    public enum SkinKind
+    {
+        Weapon,
+        Knife,
+        Glove,
+    }
+
     public class SkinData
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = ""; // Localized
         public int WeaponId { get; set; }
+
+        /// <summary>
+        /// Taken from the item's category rather than guessed from the id range. Broken Fang
+        /// Gloves are item 4725, well outside the 5027-5035 block gloves otherwise occupy, so a
+        /// numeric range silently treated them as an ordinary weapon and they never applied.
+        /// </summary>
+        public SkinKind Kind { get; set; } = SkinKind.Weapon;
         public string WeaponName { get; set; } = ""; // Localized
         public int PaintIndex { get; set; }
         public string ImageUrl { get; set; } = "";
@@ -79,7 +93,8 @@ namespace FemboyChanger.Core
                             WeaponName = item["weapon"]["name"]?.ToString(),
                             PaintIndex = int.Parse(paintIndexToken.ToString()),
                             ImageUrl = item["image"]?.ToString(),
-                            LegacyModel = (bool?)item["legacy_model"] ?? false
+                            LegacyModel = (bool?)item["legacy_model"] ?? false,
+                            Kind = ClassifyCategory(item["category"]?["id"]?.ToString())
                         });
                     } catch { } // skip parsing errors for individual skins
                 }
@@ -89,6 +104,13 @@ namespace FemboyChanger.Core
                 Console.WriteLine("Failed to load skins: " + ex.Message);
             }
         }
+
+        private static SkinKind ClassifyCategory(string? categoryId) => categoryId switch
+        {
+            "sfui_invpanel_filter_gloves" => SkinKind.Glove,
+            "sfui_invpanel_filter_melee" => SkinKind.Knife,
+            _ => SkinKind.Weapon,
+        };
 
         public static IEnumerable<IGrouping<int, SkinData>> GetGroupedSkins()
         {

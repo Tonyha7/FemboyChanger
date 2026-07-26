@@ -61,6 +61,11 @@ namespace FemboyChanger.Core
 
         private const int AllocationCountOffset = 0x14;
 
+        // Field offsets inside a CEconItemAttribute, as read by C_EconItemView::IterateAttributes.
+        private const int AttributeDefIndexOffset = 0x30;
+        private const int AttributeValueOffset = 0x34;
+        private const int AttributeInitialValueOffset = 0x38;
+
         /// <summary>
         /// vtable pointer harvested from a real, game-owned CEconItemAttribute. Injected
         /// attributes reuse it so anything that virtual-dispatches on them stays valid; until one
@@ -93,6 +98,57 @@ namespace FemboyChanger.Core
 
             _attributeVTable = vtable;
             SkinChangerLogic.Log($"[Attr] Captured CEconItemAttribute vtable 0x{vtable:X} from a live item.");
+        }
+
+        /// <summary>
+        /// Puts the skin's paint kit / seed / wear on an item view, whether or not it already has
+        /// an attribute list.
+        ///
+        /// An existing list is edited in place rather than swapped out. We can only safely free a
+        /// block we allocated ourselves, and after the tool restarts we no longer know that a list
+        /// installed in a previous session was ours - which used to leave those items permanently
+        /// stuck on the first skin they were ever given.
+        /// </summary>
+        public static bool Apply(Memory mem, nint itemView, SkinInfo skin)
+        {
+            if (skin.PaintKit <= 0) return false;
+            if (!mem.Read(ListAddress(itemView), out CUtlVectorHead head)) return false;
+
+            if (head.Size > 0 && head.Elements != 0)
+                return UpdateInPlace(mem, head, skin);
+
+            return Create(mem, itemView, skin) != 0;
+        }
+
+        /// <summary>
+        /// Rewrites the values of the paint-kit / seed / wear attributes already present in a
+        /// list. Returns false when the list has no paint-kit attribute - that means it belongs to
+        /// the game and must be left alone.
+        /// </summary>
+        private static bool UpdateInPlace(Memory mem, CUtlVectorHead head, SkinInfo skin)
+        {
+            if (head.Size > 64) return false;
+
+            bool wrotePaintKit = false;
+            for (int i = 0; i < head.Size; i++)
+            {
+                nint entry = head.Elements + i * CEconItemAttribute.Size;
+                if (!mem.Read(entry + AttributeDefIndexOffset, out ushort defIndex)) return false;
+
+                float? value = defIndex switch
+                {
+                    ATTR_PAINT_KIT => skin.PaintKit,
+                    ATTR_SEED => skin.Seed,
+                    ATTR_WEAR => skin.Wear,
+                    _ => null,
+                };
+                if (value == null) continue;
+
+                mem.Write(entry + AttributeValueOffset, value.Value);
+                mem.Write(entry + AttributeInitialValueOffset, value.Value);
+                if (defIndex == ATTR_PAINT_KIT) wrotePaintKit = true;
+            }
+            return wrotePaintKit;
         }
 
         /// <summary>

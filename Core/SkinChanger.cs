@@ -15,6 +15,14 @@ namespace FemboyChanger.Core
 
         /// <summary>Use the pre-2018 ("legacy") mesh for weapons that have two models.</summary>
         public bool LegacyModel { get; set; } = false;
+
+        /// <summary>
+        /// Item definition this skin belongs to. For knives it differs from the definition the
+        /// player is actually carrying (the stock CT/T knife), and the difference is what tells us
+        /// to swap C_EconItemView::m_iItemDefinitionIndex - without that the entity stays the
+        /// default weapon_knife, which has no paint kit material, so no knife skin can show.
+        /// </summary>
+        public int DefIndex { get; set; }
     }
 
     public static class SkinChangerLogic
@@ -54,6 +62,10 @@ namespace FemboyChanger.Core
         private const int DefIndexKnifeCT = 42;
         private const int DefIndexKnifeT = 59;
 
+        // Melee item definitions run 500-526 in the current item schema.
+        private const int KnifeDefIndexMin = 500;
+        private const int KnifeDefIndexMax = 599;
+
         // Note on legacy models: paint kits flagged use_legacy_model are authored against the
         // pre-2018 mesh, but the game switches to it entirely on its own - C_EconEntity::
         // UsesLegacyModel (sub_1807E72F0) re-derives it every frame from
@@ -73,12 +85,23 @@ namespace FemboyChanger.Core
         public static SkinInfo GloveConfig = new SkinInfo { PaintKit = 0 };
         public static int GloveDefIndex = 0;
 
+        /// <summary>
+        /// Knives get a single slot of their own instead of living in <see cref="Config"/>. Keying
+        /// them by item definition does not work once we start rewriting that definition on the
+        /// entity: picking a second knife left the first one still in the map under the definition
+        /// we had just written, so the exact-match lookup kept finding the old choice.
+        /// </summary>
+        public static SkinInfo? KnifeConfig;
+        public static int KnifeDefIndex = 0;
+
         public static volatile bool ForceUpdate = false;
 
         private static nint _regenerateWeaponSkinsAddr;
         private static bool _regeneratePatched;
         private static int _sigScanAttempts;
         private static int _handleMismatchLogged;
+        private static int _defIndexLogged;
+        private static int _gloveReassertLogged;
         private static nint _legacyConVarAddr = -1; // -1 = not looked up yet, 0 = not found
         private static int _legacyConVarOriginal;
         private static bool _legacyConVarOverridden;
@@ -188,7 +211,7 @@ namespace FemboyChanger.Core
 
             bool force = ForceUpdate;
             if (force)
-                Log($"[Force] localPawn=0x{localPawn:X} entitySystem=0x{entitySystem:X} configured={Config.Count} glove={GloveDefIndex}");
+                Log($"[Force] localPawn=0x{localPawn:X} entitySystem=0x{entitySystem:X} configured={Config.Count} knife={KnifeDefIndex} glove={GloveDefIndex}");
 
             bool changed = ApplyWeapons(localPawn, entitySystem, force);
             changed |= ApplyGloves(localPawn, force);
@@ -287,6 +310,36 @@ namespace FemboyChanger.Core
                 SkinInfo? skin = LookupSkin(defIndex);
                 if (skin == null) continue;
 
+                // Knives: make the entity actually be the chosen knife. The paint kit alone does
+                // nothing while the item view still says "stock knife" - that definition has no
+                // paint kit material, which is why picking a knife skin looked like a no-op until
+                // the knife type was changed by hand.
+                //
+                // Re-asserted on every tick, deliberately outside the "already applied" guard
+                // below: m_iItemDefinitionIndex is a networked field, so the server puts the stock
+                // knife back a tick or two after a one-shot write and the model never changes.
+                if (skin.DefIndex != 0 && skin.DefIndex != defIndex)
+                {
+                    Mem.Write(itemView + Offsets.m_iItemDefinitionIndex, (ushort)skin.DefIndex);
+                    if (Offsets.m_iEntityQuality != 0) Mem.Write(itemView + Offsets.m_iEntityQuality, 3);
+                    if (Offsets.m_iAccountID != 0) Mem.Write(itemView + Offsets.m_iAccountID, unchecked((int)0x1337BEEF));
+
+                    if (_defIndexLogged < 20)
+                    {
+                        _defIndexLogged++;
+                        Log($"[Skin] item definition {defIndex} -> {skin.DefIndex} on weapon 0x{weapon:X}" +
+                            (_defIndexLogged == 20 ? " (further messages suppressed; repeats mean the server keeps reverting it)" : ""));
+                    }
+
+                    // The entity is still rendering the model it spawned with, so ask the game to
+                    // resolve and apply the new definition's model. Runs once per change: the next
+                    // tick reads the new definition back and this branch stops firing.
+                    ModelSwap.Refresh(Mem, weapon, itemView);
+
+                    // The material has to be rebuilt for the new definition.
+                    changed = true;
+                }
+
                 // Force re-application by clearing the "already patched" marker.
                 if (force) Mem.Write(itemView + Offsets.m_iItemIDHigh, 0);
 
@@ -299,13 +352,7 @@ namespace FemboyChanger.Core
                 Mem.Write(weapon + Offsets.m_nFallbackSeed, skin.Seed);
                 Mem.Write(weapon + Offsets.m_nFallbackStatTrak, skin.StatTrak);
 
-                // Drop any list we installed earlier before writing the new one. Create() refuses
-                // to touch a non-empty list (stomping one the game owns would leak or crash it),
-                // so without this the very first skin we install sticks forever: every later pick
-                // updated the fallback fields but the stale paint-kit attribute kept winning, and
-                // the weapon never changed again.
-                AttributeManager.Remove(Mem, itemView);
-                AttributeManager.Create(Mem, itemView, skin);
+                AttributeManager.Apply(Mem, itemView, skin);
 
                 Log($"[Skin] defIndex={defIndex} paintKit={skin.PaintKit} wear={skin.Wear} seed={skin.Seed} statTrak={skin.StatTrak} legacy={skin.LegacyModel} weapon=0x{weapon:X}");
                 changed = true;
@@ -316,19 +363,21 @@ namespace FemboyChanger.Core
 
         private static SkinInfo? LookupSkin(int defIndex)
         {
-            if (Config.TryGetValue(defIndex, out SkinInfo? exact)) return exact;
+            // Knives are checked first and never by exact match: the definition currently on the
+            // entity is one we wrote ourselves, so matching on it would keep resolving to the
+            // previously chosen knife instead of the current one.
+            if (IsKnife(defIndex)) return KnifeConfig;
 
-            // Holding a stock knife: apply whichever knife the user configured.
-            if (defIndex == DefIndexKnifeCT || defIndex == DefIndexKnifeT)
-            {
-                foreach (KeyValuePair<int, SkinInfo> entry in Config)
-                {
-                    if (entry.Key >= 500 && entry.Key < 600) return entry.Value;
-                }
-            }
-
-            return null;
+            return Config.TryGetValue(defIndex, out SkinInfo? exact) ? exact : null;
         }
+
+        /// <summary>
+        /// Stock CT/T knives plus the melee item range (500-526 in the item schema; a little
+        /// headroom so newly added knives keep working).
+        /// </summary>
+        private static bool IsKnife(int defIndex) =>
+            defIndex == DefIndexKnifeCT || defIndex == DefIndexKnifeT ||
+            (defIndex >= KnifeDefIndexMin && defIndex <= KnifeDefIndexMax);
 
         // ------------------------------------------------------------------ gloves
 
@@ -341,7 +390,16 @@ namespace FemboyChanger.Core
             if (!Mem.Read(gloveItemView + Offsets.m_iItemDefinitionIndex, out ushort currentDef)) return false;
             if (currentDef == GloveDefIndex && !force) return false;
 
-            Log($"[Glove] defIndex={GloveDefIndex} paintKit={GloveConfig.PaintKit} wear={GloveConfig.Wear} itemView=0x{gloveItemView:X}");
+            // Rate limited: m_EconGloves is networked, so repeated lines here mean the server is
+            // putting its own value back and a one-shot write would never have held.
+            if (_gloveReassertLogged < 20)
+            {
+                _gloveReassertLogged++;
+                Mem.Read(gloveItemView + Offsets.m_bInitialized, out byte wasInitialized);
+                Log($"[Glove] defIndex {currentDef} -> {GloveDefIndex} paintKit={GloveConfig.PaintKit} wear={GloveConfig.Wear} " +
+                    $"itemView=0x{gloveItemView:X} initialized={wasInitialized}" +
+                    (_gloveReassertLogged == 20 ? " (further messages suppressed)" : ""));
+            }
 
             // Gloves have no entity of their own on the client - everything lives on the pawn's
             // embedded C_EconItemView, so the C_EconEntity fallback fields (m_nFallbackPaintKit &
@@ -354,9 +412,7 @@ namespace FemboyChanger.Core
             if (Offsets.m_iEntityQuality != 0) Mem.Write(gloveItemView + Offsets.m_iEntityQuality, 3);
             if (Offsets.m_iAccountID != 0) Mem.Write(gloveItemView + Offsets.m_iAccountID, unchecked((int)0x1337BEEF));
 
-            // Replace any attribute list we previously installed, then install the new one.
-            AttributeManager.Remove(Mem, gloveItemView);
-            AttributeManager.Create(Mem, gloveItemView, GloveConfig);
+            AttributeManager.Apply(Mem, gloveItemView, GloveConfig);
 
             Mem.Write<byte>(gloveItemView + Offsets.m_bInitialized, 1);
             Mem.Write<byte>(localPawn + Offsets.m_bNeedToReApplyGloves, 1);
@@ -477,6 +533,7 @@ namespace FemboyChanger.Core
         {
             foreach (KeyValuePair<int, SkinInfo> entry in Config)
                 if (entry.Value.LegacyModel) return true;
+            if (KnifeConfig != null && KnifeConfig.LegacyModel) return true;
             return GloveDefIndex != 0 && GloveConfig.LegacyModel;
         }
 
@@ -503,9 +560,12 @@ namespace FemboyChanger.Core
             _regeneratePatched = false;
             _sigScanAttempts = 0;
             _handleMismatchLogged = 0;
+            _defIndexLogged = 0;
+            _gloveReassertLogged = 0;
             _legacyConVarAddr = -1;
             _legacyConVarOverridden = false;
             AttributeManager.Reset();
+            ModelSwap.Reset();
         }
     }
 }

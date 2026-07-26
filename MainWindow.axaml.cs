@@ -100,22 +100,31 @@ namespace FemboyChanger
                 Wear = (float)WearSlider.Value,
                 Seed = (int)(SeedBox.Value ?? 0),
                 StatTrak = (int)(StatTrakBox.Value ?? -1),
-                LegacyModel = _selectedSkin.LegacyModel
+                LegacyModel = _selectedSkin.LegacyModel,
+                DefIndex = _selectedSkin.WeaponId
             };
 
-            // If it's a glove (WeaponId between 5027 and 5035 usually)
-            if (_selectedSkin.WeaponId >= 5027 && _selectedSkin.WeaponId <= 5035)
+            // Routed by the item's category, not by an id range: Broken Fang Gloves are 4725 and
+            // were being filed away as an ordinary weapon. Knives and gloves each get one slot -
+            // you only ever carry one of either, and keying them by item definition breaks once we
+            // start rewriting that definition on the entity.
+            switch (_selectedSkin.Kind)
             {
-                SkinChangerLogic.GloveConfig = skinInfo;
-                SkinChangerLogic.GloveDefIndex = _selectedSkin.WeaponId;
-            }
-            else
-            {
-                SkinChangerLogic.Config[_selectedSkin.WeaponId] = skinInfo;
+                case SkinKind.Glove:
+                    SkinChangerLogic.GloveConfig = skinInfo;
+                    SkinChangerLogic.GloveDefIndex = _selectedSkin.WeaponId;
+                    break;
+                case SkinKind.Knife:
+                    SkinChangerLogic.KnifeConfig = skinInfo;
+                    SkinChangerLogic.KnifeDefIndex = _selectedSkin.WeaponId;
+                    break;
+                default:
+                    SkinChangerLogic.Config[_selectedSkin.WeaponId] = skinInfo;
+                    break;
             }
 
             SkinChangerLogic.ForceUpdate = true;
-            SkinChangerLogic.Log($"UI: Applied {_selectedSkin.Name} (Paint: {skinInfo.PaintKit}, Legacy: {skinInfo.LegacyModel}) for WeaponId: {_selectedSkin.WeaponId}");
+            SkinChangerLogic.Log($"UI: Applied {_selectedSkin.Name} (Paint: {skinInfo.PaintKit}, Legacy: {skinInfo.LegacyModel}, Kind: {_selectedSkin.Kind}) for WeaponId: {_selectedSkin.WeaponId}");
             StatusText.Text = $"Status: Applied {_selectedSkin.Name}";
         }
 
