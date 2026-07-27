@@ -114,6 +114,9 @@ namespace FemboyChanger.Core
 
         public static void Log(string message)
         {
+            
+            return;
+
             string line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
             Console.WriteLine(line);
             lock (LogLock)
